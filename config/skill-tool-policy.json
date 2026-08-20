@@ -12,7 +12,7 @@
     "required_component_fields": ["python_executable", "release_root", "release_id", "release_manifest_sha256", "sealed_launcher_path", "sealed_launcher_sha256"],
     "python_flags": ["-I", "-S"],
     "modes": ["server", "client", "subject-server", "preflight-server", "snapshot"],
-    "environment_allowlist": ["PATH", "PYTHONUTF8", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "PYTHONSAFEPATH", "PYTHONPATH", "STUDY_READ_MCP_EXPECTED_PROJECT_ROOT", "STUDY_READ_MCP_EXPECTED_RELEASE_ID", "STUDY_READ_MCP_EXPECTED_RELEASE_MANIFEST_SHA256"]
+    "environment_allowlist": ["PATH", "PYTHONUTF8", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "PYTHONSAFEPATH", "PYTHONPATH", "STUDY_READ_MCP_EXPECTED_PROJECT_ROOT", "STUDY_READ_MCP_EXPECTED_RELEASE_ID", "STUDY_READ_MCP_EXPECTED_RELEASE_MANIFEST_SHA256", "STUDY_READ_MATH_ROOT", "STUDY_READ_CS408_ROOT", "STUDY_READ_ENGLISH_ROOT", "STUDY_INTAKE_RUNTIME_ROOT"]
   },
   "production_launcher_profiles": {
     "ordinary": {"mode": "server", "profile": "ordinary", "subjects": "math,cs408,english"},

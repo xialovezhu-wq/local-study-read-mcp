@@ -18,6 +18,12 @@ from typing import Any
 EXPECTED_RELEASE_ENV = "STUDY_READ_MCP_EXPECTED_RELEASE_ID"
 EXPECTED_ROOT_ENV = "STUDY_READ_MCP_EXPECTED_PROJECT_ROOT"
 EXPECTED_MANIFEST_SHA_ENV = "STUDY_READ_MCP_EXPECTED_RELEASE_MANIFEST_SHA256"
+PRODUCTION_ROOT_ENVS = (
+    "STUDY_READ_MATH_ROOT",
+    "STUDY_READ_CS408_ROOT",
+    "STUDY_READ_ENGLISH_ROOT",
+    "STUDY_INTAKE_RUNTIME_ROOT",
+)
 SHA256_LENGTH = 64
 SUBJECTS = frozenset({"math", "cs408", "english"})
 PROFILES = frozenset({"ordinary", "background", "morning_preparation"})
@@ -265,9 +271,11 @@ def _module_invocation(args: argparse.Namespace, root: Path) -> tuple[str, list[
     raise SealedLauncherError("mcp_sealed_mode_invalid")
 
 
-def _sealed_environment(binding: dict[str, Any]) -> dict[str, str]:
+def _sealed_environment(
+    binding: dict[str, Any], *, require_repository_environment: bool = True
+) -> dict[str, str]:
     root = binding["release_root"]
-    return {
+    environment = {
         "PATH": "/usr/bin:/bin",
         "PYTHONUTF8": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -278,6 +286,14 @@ def _sealed_environment(binding: dict[str, Any]) -> dict[str, str]:
         EXPECTED_RELEASE_ENV: binding["release_id"],
         EXPECTED_MANIFEST_SHA_ENV: binding["release_manifest_sha256"],
     }
+    if require_repository_environment:
+        missing = [name for name in PRODUCTION_ROOT_ENVS if not os.environ.get(name)]
+        if missing:
+            raise SealedLauncherError(
+                "mcp_sealed_repository_environment_missing: " + ", ".join(missing)
+            )
+        environment.update({name: os.environ[name] for name in PRODUCTION_ROOT_ENVS})
+    return environment
 
 
 def _dependency_site_packages() -> Path:
@@ -323,7 +339,9 @@ def _dependency_site_packages() -> Path:
 def _run_stage2(args: argparse.Namespace, binding: dict[str, Any]) -> None:
     if not sys.flags.isolated or not sys.flags.no_site:
         raise SealedLauncherError("mcp_sealed_isolated_python_required")
-    expected_environment = _sealed_environment(binding)
+    expected_environment = _sealed_environment(
+        binding, require_repository_environment=args.mode != "snapshot"
+    )
     for key, expected in expected_environment.items():
         if os.environ.get(key) != expected:
             raise SealedLauncherError("mcp_sealed_environment_mismatch")
@@ -360,7 +378,9 @@ def main() -> int:
     if args.sealed_stage2:
         _run_stage2(args, binding)
         return 0
-    environment = _sealed_environment(binding)
+    environment = _sealed_environment(
+        binding, require_repository_environment=args.mode != "snapshot"
+    )
     argv = [
         sys.executable,
         "-I",

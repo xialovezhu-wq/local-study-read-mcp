@@ -63,9 +63,24 @@ of echoing an unverified success.
 ## Recreate the isolated environment
 
 ```sh
-/opt/miniconda3/bin/python3.13 -m venv .venv
+python3.13 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements.lock
+.venv/bin/python -m pip install --no-deps setuptools==80.9.0
 .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+```
+
+## Build a portable release
+
+The release output is checkout-relative by default. Set
+`STUDY_READ_MCP_RELEASE_BASE` or pass `--release-base` when the output should
+live elsewhere:
+
+```sh
+STUDY_READ_MCP_RELEASE_BASE="$PWD/build/releases" \
+  .venv/bin/python scripts/build_release.py
+
+.venv/bin/python scripts/build_release.py \
+  --release-base "$PWD/build/releases"
 ```
 
 ## Run tests
@@ -76,10 +91,17 @@ of echoing an unverified success.
 
 ## Run the server
 
+Set each authority root explicitly before starting the server. The 408 value
+is the repository root containing `节点总表.md` and `wiki/study_vaults/408-full`.
+
 ```sh
-/usr/bin/env -i PATH=/usr/bin:/bin PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1 \
-  /Users/xiazhibin/Documents/Codex/local-study-read-mcp/.venv/bin/python \
-  -m study_read_mcp --stdio --profile ordinary --subjects math,cs408,english
+export STUDY_READ_MATH_ROOT="/absolute/path/to/kaoyan-math"
+export STUDY_READ_CS408_ROOT="/absolute/path/to/kaoyan-408"
+export STUDY_READ_ENGLISH_ROOT="/absolute/path/to/kaoyan-english"
+export STUDY_INTAKE_RUNTIME_ROOT="/absolute/path/to/study-intake-runtime"
+
+.venv/bin/python -m study_read_mcp \
+  --stdio --profile ordinary --subjects math,cs408,english
 ```
 
 For background evidence freezing, start one subject-isolated server with `--profile background --subjects <subject>`. Background servers expose no additional capabilities and require route binding on every call.
@@ -88,9 +110,15 @@ For a model-driven frozen capture, use one of the fixed launchers. The launcher
 forces the subject and Luna profile; only the v2 manifest path is configurable:
 
 ```sh
-study-read-mcp-math --stdio --read-session-manifest /absolute/read-session.json
-study-read-mcp-cs408 --stdio --read-session-manifest /absolute/read-session.json
-study-read-mcp-english --stdio --read-session-manifest /absolute/read-session.json
+study-read-mcp-math --stdio \
+  --read-session-manifest /absolute/read-session.json \
+  --preprocessor-root "$STUDY_INTAKE_RUNTIME_ROOT"
+study-read-mcp-cs408 --stdio \
+  --read-session-manifest /absolute/read-session.json \
+  --preprocessor-root "$STUDY_INTAKE_RUNTIME_ROOT"
+study-read-mcp-english --stdio \
+  --read-session-manifest /absolute/read-session.json \
+  --preprocessor-root "$STUDY_INTAKE_RUNTIME_ROOT"
 ```
 
 Text artifacts are paged with a session-bound `b3_` cursor. PNG, JPEG, and WebP

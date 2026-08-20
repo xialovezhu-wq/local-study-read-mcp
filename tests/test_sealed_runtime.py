@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
 import json
 import os
 import shutil
 import subprocess
+import sys
+import sysconfig
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,8 +16,26 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from study_read_mcp.morning import canonical_scope_hash
+
+from .helpers import make_fixture
+
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON = Path(sys.executable)
+
+
+def _editable_site_packages() -> Path:
+    return Path(sysconfig.get_path("purelib"))
+
+
+def _production_environment(config) -> dict[str, str]:
+    return {
+        "STUDY_READ_MATH_ROOT": str(config.math_root),
+        "STUDY_READ_CS408_ROOT": str(config.cs408_root),
+        "STUDY_READ_ENGLISH_ROOT": str(config.english_root),
+        "STUDY_INTAKE_RUNTIME_ROOT": str(config.preprocessor_root),
+    }
 
 
 def _builder():
@@ -50,17 +71,17 @@ def _request(subject: str) -> bytes:
     return (json.dumps(value, separators=(",", ":")) + "\n").encode()
 
 
-def _morning_request() -> bytes:
+def _morning_request(request: dict[str, object], evidence_scope_hash: str) -> bytes:
     value = {
         "tool": "cs408_morning_preparation_bundle",
         "arguments": {
-            "request": {},
+            "request": request,
             "route": {
                 "caller_skill_id": "kaoyan-408-morning-control",
                 "caller_skill_version": "3.0.0",
                 "plugin_version": "0.4.0-canary.9",
                 "route_request_id": "sealed-runtime-morning-cs408",
-                "evidence_scope_hash": "b" * 64,
+                "evidence_scope_hash": evidence_scope_hash,
                 "read_route": "mcp",
                 "chunk_index": 1,
                 "chunk_count": 1,
@@ -71,19 +92,49 @@ def _morning_request() -> bytes:
     return (json.dumps(value, separators=(",", ":")) + "\n").encode()
 
 
+def _prepare_morning_fixture(config) -> tuple[dict[str, object], str]:
+    root = config.cs408_root
+    dashboard = root / "wiki/study_vaults/408-full/StudyVault/00-Dashboard"
+    dashboard.mkdir(parents=True, exist_ok=True)
+    (root / "wiki/study_vaults/408-full/input").mkdir(parents=True, exist_ok=True)
+    (root / "复习单元卡").mkdir(parents=True, exist_ok=True)
+    (root / "复习单元节点映射.md").write_text(
+        "# 复习单元节点映射\n", encoding="utf-8"
+    )
+    (root / "DS_2023_002.md").write_text(
+        "# DS_2023_002\n\nSynthetic protected evidence.\n",
+        encoding="utf-8",
+    )
+    queue = (
+        "review_date: 2026-08-07\n\n"
+        "### MQ-MORNING-001\n"
+        "- source_id: SRC-1\n"
+        "- item_kind: formal\n"
+    ).encode("utf-8")
+    queue_path = dashboard / "2026-08-07-408晨间行动队列.md"
+    queue_path.write_bytes(queue)
+    queue_sha256 = hashlib.sha256(queue).hexdigest()
+    item_ids = ["MQ-MORNING-001"]
+    scope_hash = canonical_scope_hash("2026-08-07", queue_sha256, item_ids)
+    request = {
+        "review_date": "2026-08-07",
+        "queue_sha256": queue_sha256,
+        "item_ids": item_ids,
+    }
+    return request, scope_hash
+
+
 class SealedRuntimeTests(unittest.TestCase):
     def test_isolated_no_site_starts_before_the_real_editable_pth(self) -> None:
         editable_source = str(ROOT / "src")
         pth_files = sorted(
-            (ROOT / ".venv/lib").glob(
-                "python*/site-packages/__editable__.study_read_mcp-*.pth"
-            )
+            _editable_site_packages().glob("__editable__.study_read_mcp-*.pth")
         )
         self.assertTrue(pth_files, "fixture requires the real editable install")
         self.assertIn(editable_source, pth_files[0].read_text(encoding="utf-8"))
         completed = subprocess.run(
             [
-                str(ROOT / ".venv/bin/python"),
+                str(PYTHON),
                 "-I",
                 "-S",
                 "-c",
@@ -102,6 +153,10 @@ class SealedRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             result = builder.build(Path(temp) / "releases")
             release = Path(result["release_dir"])
+            fixture_config = make_fixture(Path(temp) / "authority")
+            morning_request, morning_scope_hash = _prepare_morning_fixture(
+                fixture_config
+            )
             editable_site = Path(temp) / "editable-site"
             editable_package = editable_site / "study_read_mcp"
             editable_package.mkdir(parents=True)
@@ -123,7 +178,7 @@ class SealedRuntimeTests(unittest.TestCase):
                 with self.subTest(profile=profile, subject=subject):
                     completed = subprocess.run(
                         [
-                            str(ROOT / ".venv/bin/python"),
+                            str(PYTHON),
                             "-I",
                             "-S",
                             str(release / "scripts/sealed_launcher.py"),
@@ -141,7 +196,7 @@ class SealedRuntimeTests(unittest.TestCase):
                             subject,
                         ],
                         input=(
-                            _morning_request()
+                            _morning_request(morning_request, morning_scope_hash)
                             if profile == "morning_preparation"
                             else _request(subject)
                         ),
@@ -163,6 +218,7 @@ class SealedRuntimeTests(unittest.TestCase):
                             "STUDY_READ_MCP_EXPECTED_RELEASE_MANIFEST_SHA256": result[
                                 "release_manifest_sha256"
                             ],
+                            **_production_environment(fixture_config),
                         },
                         check=False,
                         timeout=20,
@@ -190,7 +246,7 @@ class SealedRuntimeTests(unittest.TestCase):
                 "require_expected_environment=True)"
             )
             missing = subprocess.run(
-                [str(ROOT / ".venv/bin/python"), "-c", code],
+                [str(PYTHON), "-c", code],
                 cwd=release,
                 env=base_environment,
                 stdout=subprocess.PIPE,
@@ -199,7 +255,7 @@ class SealedRuntimeTests(unittest.TestCase):
             )
             self.assertNotEqual(missing.returncode, 0)
             wrong = subprocess.run(
-                [str(ROOT / ".venv/bin/python"), "-c", code],
+                [str(PYTHON), "-c", code],
                 cwd=release,
                 env={
                     **base_environment,
@@ -217,7 +273,7 @@ class SealedRuntimeTests(unittest.TestCase):
 
             missing_pythonpath = subprocess.run(
                 [
-                    str(ROOT / ".venv/bin/python"),
+                    str(PYTHON),
                     "-m",
                     "study_read_mcp.client",
                     "--profile",
@@ -255,7 +311,7 @@ class SealedRuntimeTests(unittest.TestCase):
             manifest["formal_write_count"] = 1
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             tampered = subprocess.run(
-                [str(ROOT / ".venv/bin/python"), "-c", code],
+                [str(PYTHON), "-c", code],
                 cwd=tampered_root,
                 env={
                     "PATH": "/usr/bin:/bin",
@@ -280,7 +336,7 @@ class SealedRuntimeTests(unittest.TestCase):
             result = builder.build(Path(temp) / "releases")
             release = Path(result["release_dir"])
             common = [
-                str(ROOT / ".venv/bin/python"),
+                str(PYTHON),
                 "-I",
                 "-S",
                 str(release / "scripts/sealed_launcher.py"),
@@ -314,7 +370,7 @@ class SealedRuntimeTests(unittest.TestCase):
             copied.chmod(0o444)
             copied_launcher = subprocess.run(
                 [
-                    str(ROOT / ".venv/bin/python"),
+                    str(PYTHON),
                     "-I",
                     "-S",
                     str(copied),
@@ -355,7 +411,7 @@ class SealedRuntimeTests(unittest.TestCase):
             async def inspect(subject: str, session_root: Path) -> tuple[str, list[str]]:
                 config, session = make_v2_session(session_root, subject)
                 params = StdioServerParameters(
-                    command=str(ROOT / ".venv/bin/python"),
+                    command=str(PYTHON),
                     args=[
                         "-I",
                         "-S",
@@ -380,6 +436,7 @@ class SealedRuntimeTests(unittest.TestCase):
                         "PATH": "/usr/bin:/bin",
                         "PYTHONPATH": str(editable),
                         "PYTHONUSERBASE": str(editable),
+                        **_production_environment(config),
                     },
                 )
                 async with stdio_client(params) as streams:
@@ -415,7 +472,7 @@ class SealedRuntimeTests(unittest.TestCase):
             release = Path(result["release_dir"])
             completed = subprocess.run(
                 [
-                    str(ROOT / ".venv/bin/python"),
+                    str(PYTHON),
                     "-I",
                     "-c",
                     (
@@ -447,7 +504,7 @@ class SealedRuntimeTests(unittest.TestCase):
             changed.chmod(0o444)
             completed = subprocess.run(
                 [
-                    str(ROOT / ".venv/bin/python"),
+                    str(PYTHON),
                     "-I",
                     "-S",
                     str(tampered / "scripts/sealed_launcher.py"),

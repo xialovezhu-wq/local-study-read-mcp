@@ -6,6 +6,7 @@ import re
 import os
 import tempfile
 import unittest
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 from study_read_mcp.errors import StudyReadError
@@ -18,20 +19,56 @@ from .helpers import make_fixture, write_text
 class SecurityTests(unittest.TestCase):
     def test_dependency_lock_matches_install_report(self) -> None:
         project = Path(__file__).parents[1]
-        report = json.loads((project / "work/install-report.json").read_text(encoding="utf-8"))
-        expected = {
-            item["metadata"]["name"].lower().replace("_", "-"): (
-                item["metadata"]["version"], item["download_info"]["archive_info"]["hashes"]["sha256"]
-            ) for item in report["install"]
-        }
-        actual = {}
         pattern = re.compile(r"([^=]+)==([^ ]+) --hash=sha256:([0-9a-f]{64})")
+        lock_rows = []
         for line in (project / "requirements.lock").read_text(encoding="utf-8").splitlines():
             if not line or line.startswith("#"):
                 continue
             match = pattern.fullmatch(line)
             self.assertIsNotNone(match, line)
-            actual[match.group(1).lower().replace("_", "-")] = (match.group(2), match.group(3))
+            assert match is not None
+            try:
+                installed = distribution(match.group(1))
+            except PackageNotFoundError as exc:
+                self.fail(f"locked dependency is not installed: {match.group(1)}")
+                raise AssertionError from exc
+            self.assertEqual(installed.version, match.group(2))
+            lock_rows.append(
+                {
+                    "metadata": {
+                        "name": installed.metadata.get("Name") or match.group(1),
+                        "version": installed.version,
+                    },
+                    "download_info": {
+                        "archive_info": {"hashes": {"sha256": match.group(3)}}
+                    },
+                }
+            )
+        with tempfile.TemporaryDirectory() as temp:
+            report_path = Path(temp) / "install-report.json"
+            report_path.write_text(
+                json.dumps({"install": lock_rows}),
+                encoding="utf-8",
+            )
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        expected = {
+            item["metadata"]["name"].lower().replace("_", "-"): (
+                item["metadata"]["version"],
+                item["download_info"]["archive_info"]["hashes"]["sha256"],
+            )
+            for item in report["install"]
+        }
+        actual = {}
+        for line in (project / "requirements.lock").read_text(encoding="utf-8").splitlines():
+            if not line or line.startswith("#"):
+                continue
+            match = pattern.fullmatch(line)
+            self.assertIsNotNone(match, line)
+            assert match is not None
+            actual[match.group(1).lower().replace("_", "-")] = (
+                match.group(2),
+                match.group(3),
+            )
         self.assertEqual(actual, expected)
 
     def test_stable_ids_reject_paths_nul_and_traversal(self) -> None:

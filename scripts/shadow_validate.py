@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from study_read_mcp.config import RepositoryConfig
 from study_read_mcp.service import StudyReadService
 
 
@@ -26,10 +27,11 @@ def tree_hash(paths: Iterable[Path]) -> tuple[str, int]:
 
 
 def protected_files() -> list[Path]:
-    math = Path("/Users/xiazhibin/Documents/kaoyan-math")
-    cs408 = Path("/Users/xiazhibin/Documents/kaoyan-408/wiki/study_vaults/408-full")
-    english = Path("/Users/xiazhibin/Documents/kaoyan-english")
-    pre = Path("/Users/xiazhibin/.codex/study-intake-preprocessor")
+    config = RepositoryConfig.production()
+    math = config.math_root
+    cs408 = config.cs408_root / "wiki/study_vaults/408-full"
+    english = config.english_root
+    pre = config.preprocessor_root
     files = list((math / "错题知识网络/错题卡").glob("*.md"))
     files += [
         math / "错题知识网络/生成/wrong_questions.json",
@@ -91,4 +93,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

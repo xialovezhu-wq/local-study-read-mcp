@@ -114,12 +114,21 @@ class SQLiteAndProtocolTests(unittest.TestCase):
 
     def test_mcp_stdio_lists_exact_five_tools(self) -> None:
         project = Path(__file__).parents[1]
-        python = project / ".venv/bin/python"
+        python = Path(sys.executable)
 
         async def check() -> None:
             params = StdioServerParameters(
                 command="/usr/bin/env",
-                args=["-i", "PATH=/usr/bin:/bin", "PYTHONUTF8=1", "PYTHONDONTWRITEBYTECODE=1", str(python), "-m", "study_read_mcp", "--stdio", "--profile", "ordinary", "--subjects", "math,cs408,english"],
+                args=[
+                    "-i", "PATH=/usr/bin:/bin", "PYTHONUTF8=1",
+                    "PYTHONDONTWRITEBYTECODE=1",
+                    "STUDY_READ_MATH_ROOT=/synthetic/math",
+                    "STUDY_READ_CS408_ROOT=/synthetic/cs408",
+                    "STUDY_READ_ENGLISH_ROOT=/synthetic/english",
+                    "STUDY_INTAKE_RUNTIME_ROOT=/synthetic/runtime",
+                    str(python), "-m", "study_read_mcp", "--stdio",
+                    "--profile", "ordinary", "--subjects", "math,cs408,english",
+                ],
                 cwd=str(project),
                 env={},
             )
@@ -141,7 +150,7 @@ class SQLiteAndProtocolTests(unittest.TestCase):
 
     def test_background_client_round_trip_requires_bound_skill(self) -> None:
         project = Path(__file__).parents[1]
-        python = project / ".venv/bin/python"
+        python = Path(sys.executable)
         route = {
             "caller_skill_id": "background-math-processing",
             "caller_skill_version": "1.0.0",
@@ -182,19 +191,26 @@ class SQLiteAndProtocolTests(unittest.TestCase):
 
     def test_luna_stdio_exposes_exactly_six_focused_tools(self) -> None:
         project = Path(__file__).parents[1]
-        python = project / ".venv/bin/python"
+        python = Path(sys.executable)
         with tempfile.TemporaryDirectory() as temp:
             config, path = make_v2_session(Path(temp), "math")
 
             async def check() -> None:
                 params = StdioServerParameters(
-                    command=str(project / ".venv/bin/study-read-mcp-math"),
+                    command=str(python.parent / "study-read-mcp-math"),
                     args=[
                         "--stdio", "--read-session-manifest", str(path),
                         "--preprocessor-root", str(config.preprocessor_root),
                     ],
                     cwd=str(project),
-                    env={"PYTHONPATH": str(project / "src"), "PYTHONUTF8": "1"},
+                    env={
+                        "PYTHONPATH": str(project / "src"),
+                        "PYTHONUTF8": "1",
+                        "STUDY_READ_MATH_ROOT": str(config.math_root),
+                        "STUDY_READ_CS408_ROOT": str(config.cs408_root),
+                        "STUDY_READ_ENGLISH_ROOT": str(config.english_root),
+                        "STUDY_INTAKE_RUNTIME_ROOT": str(config.preprocessor_root),
+                    },
                 )
                 async with stdio_client(params) as (read_stream, write_stream):
                     async with ClientSession(read_stream, write_stream) as session:

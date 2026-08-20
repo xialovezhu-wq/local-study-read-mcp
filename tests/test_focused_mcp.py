@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -33,6 +34,15 @@ def canonical_bytes(value: object) -> bytes:
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         + "\n"
     ).encode("utf-8")
+
+
+def synthetic_production_environment(base: Path) -> dict[str, str]:
+    return {
+        "STUDY_READ_MATH_ROOT": str(base / "production-math"),
+        "STUDY_READ_CS408_ROOT": str(base / "production-cs408"),
+        "STUDY_READ_ENGLISH_ROOT": str(base / "production-english"),
+        "STUDY_INTAKE_RUNTIME_ROOT": str(base / "production-runtime"),
+    }
 
 
 def make_v2_session(base: Path, subject: str = "math") -> tuple[object, Path]:
@@ -158,6 +168,7 @@ class FocusedMCPTests(unittest.TestCase):
             cwd=str(Path(__file__).resolve().parents[1]),
             env={
                 **os.environ,
+                **synthetic_production_environment(session_path.parent),
                 "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
                 "PYTHONUTF8": "1",
                 "PYTHONDONTWRITEBYTECODE": "1",
@@ -184,9 +195,15 @@ class FocusedMCPTests(unittest.TestCase):
         for subject in ("math", "cs408", "english"):
             with self.subTest(subject=subject), tempfile.TemporaryDirectory() as temp:
                 config, session_path = make_v2_session(Path(temp), subject)
+                with patch.dict(
+                    os.environ,
+                    synthetic_production_environment(Path(temp)),
+                    clear=False,
+                ):
+                    production_config = RepositoryConfig.production()
                 self.assertNotEqual(
                     config.preprocessor_root,
-                    RepositoryConfig.production().preprocessor_root,
+                    production_config.preprocessor_root,
                 )
                 server_name, tool_names = asyncio.run(
                     self._stdio_identity_and_tools(
@@ -220,6 +237,7 @@ class FocusedMCPTests(unittest.TestCase):
                     cwd=Path(__file__).resolve().parents[1],
                     env={
                         **os.environ,
+                        **synthetic_production_environment(session_path.parent),
                         "PYTHONPATH": str(
                             Path(__file__).resolve().parents[1] / "src"
                         ),

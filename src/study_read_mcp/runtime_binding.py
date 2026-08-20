@@ -14,6 +14,12 @@ from .release import CODE_REVISION, SERVER_RELEASE
 EXPECTED_RELEASE_ENV = "STUDY_READ_MCP_EXPECTED_RELEASE_ID"
 EXPECTED_ROOT_ENV = "STUDY_READ_MCP_EXPECTED_PROJECT_ROOT"
 EXPECTED_MANIFEST_SHA_ENV = "STUDY_READ_MCP_EXPECTED_RELEASE_MANIFEST_SHA256"
+PRODUCTION_ROOT_ENVS = (
+    "STUDY_READ_MATH_ROOT",
+    "STUDY_READ_CS408_ROOT",
+    "STUDY_READ_ENGLISH_ROOT",
+    "STUDY_INTAKE_RUNTIME_ROOT",
+)
 
 
 class RuntimeBindingError(RuntimeError):
@@ -129,7 +135,7 @@ def sealed_python_environment(project_root: Path) -> dict[str, str]:
     )
     if manifest_sha == "development-tree":
         raise RuntimeBindingError("mcp_runtime_immutable_release_required")
-    return {
+    environment = {
         "PATH": "/usr/bin:/bin",
         "PYTHONUTF8": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -140,6 +146,13 @@ def sealed_python_environment(project_root: Path) -> dict[str, str]:
         EXPECTED_RELEASE_ENV: release_id,
         EXPECTED_MANIFEST_SHA_ENV: manifest_sha,
     }
+    missing = [name for name in PRODUCTION_ROOT_ENVS if not os.environ.get(name)]
+    if missing:
+        raise RuntimeBindingError(
+            "mcp_runtime_repository_environment_missing: " + ", ".join(missing)
+        )
+    environment.update({name: os.environ[name] for name in PRODUCTION_ROOT_ENVS})
+    return environment
 
 
 def sealed_launcher_path(project_root: Path) -> Path:

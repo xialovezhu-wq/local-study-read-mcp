@@ -17,9 +17,17 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RELEASE_BASE = Path(
-    "/Users/xiazhibin/.codex/local-study-read-mcp/releases"
-)
+RELEASE_BASE_ENV = "STUDY_READ_MCP_RELEASE_BASE"
+DEFAULT_RELEASE_BASE = ROOT / "build" / "releases"
+
+
+def default_release_base() -> Path:
+    """Return the explicit release output or a checkout-relative default."""
+
+    configured = os.environ.get(RELEASE_BASE_ENV)
+    if configured is not None and configured.strip():
+        return Path(configured)
+    return DEFAULT_RELEASE_BASE
 
 
 class ReleaseError(RuntimeError):
@@ -317,7 +325,7 @@ def main() -> int:
     parser.add_argument(
         "--release-base",
         type=Path,
-        default=DEFAULT_RELEASE_BASE,
+        default=default_release_base(),
     )
     parser.add_argument("--verify", type=Path)
     args = parser.parse_args()
